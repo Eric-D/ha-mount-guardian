@@ -16,10 +16,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # `ignore: brands` est TEMPORAIRE, le temps de l'alpha.
+      #
+      # HACS exige soit des images de marque dans
+      # custom_components/addon_mount_guard/brand/, soit une entrée dans le
+      # dépôt home-assistant/brands. Il n'y en a encore ni l'une ni l'autre.
+      # C'est le seul contrôle HACS désactivé, et il doit être réactivé avant
+      # la première version stable : sans images, la fiche du dépôt reste sans
+      # visuel dans HACS.
       - name: HACS validation
         uses: hacs/action@main
         with:
           category: integration
+          ignore: brands
 
   # hassfest valide le manifeste pour de vrai. Attention au périmètre exact :
   # l'action passe --integration-path, donc specific_integrations est vrai, et
@@ -130,14 +139,24 @@ jobs:
 
           # Les six opérations réellement employées, sur le client typé. Un
           # renommage amont casse l'intégration en silence : les tests passent
-          # un double.
+          # un double, et rien d'autre ne regarde la vraie bibliothèque.
+          #
+          # On interroge les classes de composant, pas __annotations__ du
+          # client : mounts et addons y sont des @property, donc absentes
+          # des annotations — une vérification écrite dessus passerait pour
+          # stricte tout en ne regardant rien.
           from aiohasupervisor import SupervisorClient
-          for component, method in (('mounts', 'info'), ('mounts', 'reload_mount'),
-                                    ('addons', 'list'), ('addons', 'addon_info'),
-                                    ('addons', 'start_addon'), ('addons', 'stop_addon')):
-              holder = SupervisorClient.__annotations__.get(component)
-              assert holder is not None, component
-              print('ok', component + '.' + method)
+          from aiohasupervisor.addons import AddonsClient
+          from aiohasupervisor.mounts import MountsClient
+          for name in ('mounts', 'addons'):
+              assert isinstance(getattr(SupervisorClient, name, None), property), name
+              print('ok SupervisorClient.' + name)
+          for holder, methods in ((MountsClient, ('info', 'reload_mount')),
+                                  (AddonsClient, ('list', 'addon_info',
+                                                  'start_addon', 'stop_addon'))):
+              for method in methods:
+                  assert callable(getattr(holder, method, None)), method
+                  print('ok', holder.__name__ + '.' + method)
 
           # Le flux d'options ne reçoit plus l'entrée : il la tient de la
           # propriété de sa classe de base. Rétablir l'argument produit un

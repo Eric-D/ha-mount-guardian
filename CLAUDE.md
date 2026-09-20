@@ -668,6 +668,28 @@ ferait resservir un bundle périmé derrière un cache-buster frais.
 
 ---
 
+## Publication
+
+Trois contrôles HACS portent sur le **dépôt GitHub** et non sur le code, donc
+rien en local ne les voit :
+
+- **description** et **topics** du dépôt, réglés une fois via `gh repo edit` ;
+- **images de marque**, soit dans
+  `custom_components/addon_mount_guard/brand/`, soit par une entrée dans
+  `home-assistant/brands`.
+
+Le troisième est **désactivé** dans `validate.yml` (`ignore: brands`) le temps
+de l'alpha. C'est le seul contrôle HACS neutralisé, et il doit être réactivé
+avant la première version stable : sans images, la fiche du dépôt reste sans
+visuel dans HACS.
+
+Le workflow de release marque une **pré-version** dès que le tag porte un
+suffixe (`-alpha`, `-beta`, `-rc`). HACS ne propose une pré-version qu'aux
+utilisateurs ayant coché « afficher les versions bêta », ce qui permet de
+publier sans la pousser à tout le monde.
+
+---
+
 ## Linters
 
 `ruff check .` — configuré dans `pyproject.toml`, exécuté en CI. Longueur de
