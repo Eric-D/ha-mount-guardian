@@ -1,0 +1,179 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add-on Mount Guard",
+        "description": "Surveillance des stockages réseau utilisés par les add-ons. Les add-ons à surveiller s'ajoutent ensuite, un par un.",
+        "data": {
+          "scan_interval": "Intervalle de relevé",
+          "retry_interval": "Intervalle de réessai",
+          "min_free_ratio": "Espace libre local minimum",
+          "notify": "Notifications persistantes"
+        },
+        "data_description": {
+          "scan_interval": "Le Superviseur signale déjà les pannes ; ce relevé est un filet pour le cas où il annonce un montage actif que Home Assistant ne voit pas.",
+          "retry_interval": "Délai avant de retenter une réparation qui a échoué. Un NAS qui redémarre répond au réseau avant d'avoir fini d'exporter ses partages.",
+          "min_free_ratio": "En dessous, les add-ons du montage sont arrêtés pour protéger l'installation. 0 désactive ce garde-fou.",
+          "notify": "Crée une notification dans Home Assistant lors d'une panne ou d'un arrêt d'urgence."
+        }
+      }
+    },
+    "error": {
+      "no_supervisor": "Superviseur introuvable. Cette intégration demande Home Assistant OS ou Supervised."
+    },
+    "abort": {
+      "already_configured": "Add-on Mount Guard est déjà configuré.",
+      "single_instance_allowed": "Une seule instance d'Add-on Mount Guard est possible.",
+      "reconfigure_successful": "Configuration mise à jour."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Réglages",
+        "data": {
+          "scan_interval": "Intervalle de relevé",
+          "retry_interval": "Intervalle de réessai",
+          "min_free_ratio": "Espace libre local minimum",
+          "notify": "Notifications persistantes"
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "addon": {
+      "title": "Add-on surveillé",
+      "initiate_flow": {
+        "user": "Surveiller un add-on",
+        "reconfigure": "Modifier cet add-on"
+      },
+      "entry_type": "Add-on",
+      "step": {
+        "addon": {
+          "title": "Add-on à surveiller",
+          "description": "Choisissez l'add-on dont les écritures doivent être protégées.",
+          "data": {
+            "slug": "Add-on"
+          }
+        },
+        "mounts": {
+          "title": "Montages de cet add-on",
+          "description": "Les réglages ci-dessous appartiennent au montage, pas à l'add-on : un second add-on qui déclarera les mêmes montages les retrouvera tels quels.",
+          "data": {
+            "mounts": "Stockages réseau",
+            "host": "Hôte ou IP du NAS",
+            "mode": "Comportement en cas de panne",
+            "overwrite": "Au rapatriement"
+          },
+          "data_description": {
+            "host": "Testé par une connexion TCP sur le port du partage pour savoir quand le NAS est de retour.",
+            "mode": "« Repli local » laisse l'add-on écrire en local puis rapatrie. « Arrêt seul » arrête l'add-on sans rien déplacer.",
+            "overwrite": "Que faire d'un fichier présent des deux côtés au moment de rapatrier."
+          }
+        }
+      },
+      "abort": {
+        "no_supervisor": "Superviseur injoignable.",
+        "no_addons": "Tous les add-ons installés sont déjà surveillés.",
+        "no_mounts": "Aucun stockage réseau en /media ou /share n'est configuré dans Paramètres > Système > Stockage."
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "local_fallback": "Repli local puis rapatriement",
+        "stop_only": "Arrêt seul, aucun fichier déplacé"
+      }
+    },
+    "overwrite": {
+      "options": {
+        "keep_newest": "Garder le fichier le plus récent",
+        "always": "Le fichier local écrase toujours",
+        "never": "Ne jamais écraser le NAS"
+      }
+    }
+  },
+  "services": {
+    "repair": {
+      "name": "Réparer maintenant",
+      "description": "Lance la séquence de réparation sans attendre le délai de réessai.",
+      "fields": {
+        "mount": {
+          "name": "Montage",
+          "description": "Nom du stockage réseau. Sans cible, tous les montages surveillés."
+        },
+        "addon": {
+          "name": "Add-on",
+          "description": "Slug de l'add-on : tous ses montages sont traités."
+        }
+      }
+    },
+    "cancel": {
+      "name": "Annuler",
+      "description": "Abandonne la remédiation en cours. L'abandon prend effet entre deux étapes, jamais au milieu d'une copie.",
+      "fields": {
+        "mount": {
+          "name": "Montage",
+          "description": "Nom du stockage réseau."
+        },
+        "addon": {
+          "name": "Add-on",
+          "description": "Slug de l'add-on : tous ses montages sont traités."
+        }
+      }
+    },
+    "set_mode": {
+      "name": "Changer le mode",
+      "description": "Change le comportement d'un montage en cas de panne.",
+      "fields": {
+        "mount": {
+          "name": "Montage",
+          "description": "Nom du stockage réseau."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Repli local puis rapatriement, ou arrêt seul."
+        }
+      }
+    }
+  },
+  "issues": {
+    "repair_failed": {
+      "title": "Réparation impossible : {mount}",
+      "description": "La réparation du montage « {mount} » a échoué trois fois de suite. Dernière erreur : {error}\n\nVérifiez que le NAS est joignable et que le stockage est correctement configuré dans Paramètres > Système > Stockage."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "remediations": {
+        "name": "Remédiations en cours"
+      },
+      "addon_state": {
+        "name": "État",
+        "state": {
+          "ok": "Normal",
+          "local": "Écriture locale",
+          "repairing": "Réparation",
+          "stopped": "Arrêté"
+        }
+      },
+      "pending_files": {
+        "name": "Fichiers en attente"
+      },
+      "last_incident": {
+        "name": "Dernier incident"
+      }
+    },
+    "binary_sensor": {
+      "mount_problem": {
+        "name": "{mount}"
+      }
+    },
+    "button": {
+      "repair": {
+        "name": "Réparer {mount}"
+      }
+    }
+  }
+}

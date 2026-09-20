@@ -1,0 +1,14 @@
+{
+  "domain": "addon_mount_guard",
+  "name": "Add-on Mount Guard",
+  "codeowners": ["@Eric-D"],
+  "config_flow": true,
+  "dependencies": ["frontend", "hassio", "http", "persistent_notification"],
+  "documentation": "https://github.com/Eric-D/ha-mount-guardian",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Eric-D/ha-mount-guardian/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0-alpha.1"
+}

@@ -1,0 +1,27 @@
+# Outillage de test uniquement.
+#
+# L'intégration n'a AUCUNE dépendance runtime : la joignabilité du NAS se teste
+# par une connexion TCP d'asyncio, et tout le reste passe par le Supervisor ou
+# par la bibliothèque standard. `scripts/manifest_requirements.py` produit donc
+# un fichier vide aujourd'hui ; il reste en place pour que l'ajout d'une
+# dépendance un jour ne demande pas de retoucher la CI.
+#
+# Home Assistant en est absent volontairement : tests/conftest.py le simule, les
+# tests ne portant que sur la logique pure. Le job « import-check » de la CI
+# l'installe, lui, pour de vrai.
+pytest>=8.0.0
+# Épinglé, contrairement à Home Assistant dans le job import-check : là, un
+# échec signifie que l'amont a cassé l'intégration, c'est le signal recherché.
+# Ici il signifierait que l'amont a une nouvelle opinion sur le style — du bruit
+# qui, répété sur l'exécution quotidienne, apprend à ignorer les échecs.
+ruff~=0.16.0
+# La séquence de réparation et le coordinator sont des coroutines. Sans ce
+# greffon, pytest les collecte, ne les attend jamais, et les affiche en vert
+# sans avoir exécuté une seule assertion.
+pytest-asyncio>=0.24
+
+# Lu par test_translations.py, qui vérifie que services.yaml décrit bien les
+# services réellement enregistrés. Pas une dépendance de l'intégration : Home
+# Assistant lit ce fichier lui-même, et le déclarer dans le manifeste ferait
+# installer PyYAML chez l'utilisateur pour rien.
+pyyaml>=6.0

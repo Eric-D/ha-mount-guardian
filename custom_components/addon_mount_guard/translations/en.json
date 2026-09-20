@@ -1,0 +1,179 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add-on Mount Guard",
+        "description": "Watches the network storage used by your add-ons. Add-ons to watch are added afterwards, one at a time.",
+        "data": {
+          "scan_interval": "Poll interval",
+          "retry_interval": "Retry interval",
+          "min_free_ratio": "Minimum local free space",
+          "notify": "Persistent notifications"
+        },
+        "data_description": {
+          "scan_interval": "The Supervisor already reports failures; this poll is a safety net for when it reports a mount as active that Home Assistant cannot see.",
+          "retry_interval": "How long to wait before retrying a failed repair. A NAS that is rebooting answers on the network before it has finished exporting its shares.",
+          "min_free_ratio": "Below this, the add-ons using the mount are stopped to protect the installation. 0 disables this safeguard.",
+          "notify": "Creates a Home Assistant notification on a failure or an emergency stop."
+        }
+      }
+    },
+    "error": {
+      "no_supervisor": "Supervisor not found. This integration requires Home Assistant OS or Supervised."
+    },
+    "abort": {
+      "already_configured": "Add-on Mount Guard is already configured.",
+      "single_instance_allowed": "Only one instance of Add-on Mount Guard is allowed.",
+      "reconfigure_successful": "Configuration updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "data": {
+          "scan_interval": "Poll interval",
+          "retry_interval": "Retry interval",
+          "min_free_ratio": "Minimum local free space",
+          "notify": "Persistent notifications"
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "addon": {
+      "title": "Watched add-on",
+      "initiate_flow": {
+        "user": "Watch an add-on",
+        "reconfigure": "Edit this add-on"
+      },
+      "entry_type": "Add-on",
+      "step": {
+        "addon": {
+          "title": "Add-on to watch",
+          "description": "Pick the add-on whose writes should be protected.",
+          "data": {
+            "slug": "Add-on"
+          }
+        },
+        "mounts": {
+          "title": "Mounts used by this add-on",
+          "description": "The settings below belong to the mount, not to the add-on: a second add-on declaring the same mounts will find them unchanged.",
+          "data": {
+            "mounts": "Network storage",
+            "host": "NAS host or IP",
+            "mode": "Behaviour on failure",
+            "overwrite": "When moving files back"
+          },
+          "data_description": {
+            "host": "Probed with a TCP connection on the share's port to tell when the NAS is back.",
+            "mode": "\"Local fallback\" lets the add-on write locally and moves the files back afterwards. \"Stop only\" stops the add-on and moves nothing.",
+            "overwrite": "What to do with a file that exists on both sides when moving files back."
+          }
+        }
+      },
+      "abort": {
+        "no_supervisor": "Supervisor unreachable.",
+        "no_addons": "Every installed add-on is already watched.",
+        "no_mounts": "No network storage under /media or /share is configured in Settings > System > Storage."
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "local_fallback": "Local fallback, then move back",
+        "stop_only": "Stop only, move no files"
+      }
+    },
+    "overwrite": {
+      "options": {
+        "keep_newest": "Keep the newest file",
+        "always": "The local file always wins",
+        "never": "Never overwrite the NAS"
+      }
+    }
+  },
+  "services": {
+    "repair": {
+      "name": "Repair now",
+      "description": "Runs the repair sequence without waiting for the retry delay.",
+      "fields": {
+        "mount": {
+          "name": "Mount",
+          "description": "Network storage name. With no target, every watched mount."
+        },
+        "addon": {
+          "name": "Add-on",
+          "description": "Add-on slug: all of its mounts are handled."
+        }
+      }
+    },
+    "cancel": {
+      "name": "Cancel",
+      "description": "Abandons the running remediation. Takes effect between two steps, never in the middle of a copy.",
+      "fields": {
+        "mount": {
+          "name": "Mount",
+          "description": "Network storage name."
+        },
+        "addon": {
+          "name": "Add-on",
+          "description": "Add-on slug: all of its mounts are handled."
+        }
+      }
+    },
+    "set_mode": {
+      "name": "Change mode",
+      "description": "Changes what happens to a mount when it fails.",
+      "fields": {
+        "mount": {
+          "name": "Mount",
+          "description": "Network storage name."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Local fallback then move back, or stop only."
+        }
+      }
+    }
+  },
+  "issues": {
+    "repair_failed": {
+      "title": "Cannot repair: {mount}",
+      "description": "Repairing mount \"{mount}\" failed three times in a row. Last error: {error}\n\nCheck that the NAS is reachable and that the storage is configured correctly under Settings > System > Storage."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "remediations": {
+        "name": "Remediations in progress"
+      },
+      "addon_state": {
+        "name": "State",
+        "state": {
+          "ok": "Normal",
+          "local": "Writing locally",
+          "repairing": "Repairing",
+          "stopped": "Stopped"
+        }
+      },
+      "pending_files": {
+        "name": "Files pending"
+      },
+      "last_incident": {
+        "name": "Last incident"
+      }
+    },
+    "binary_sensor": {
+      "mount_problem": {
+        "name": "{mount}"
+      }
+    },
+    "button": {
+      "repair": {
+        "name": "Repair {mount}"
+      }
+    }
+  }
+}

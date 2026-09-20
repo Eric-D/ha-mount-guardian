@@ -1,0 +1,47 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Sans ce réglage, pytest-asyncio réclame un marqueur explicite sur chaque
+# coroutine ; celles qui n'en ont pas sont collectées, jamais attendues, et
+# affichées en vert sans avoir exécuté une seule assertion. C'est exactement le
+# faux vert que ce dépôt cherche à rendre impossible ailleurs.
+asyncio_mode = "auto"
+
+[tool.ruff]
+# 100 plutôt que les 88 de Home Assistant core : c'est la largeur retenue sur
+# ha-escalade-veauche, dont ce dépôt reprend les conventions, et les deux
+# doivent rester relisables l'un après l'autre.
+line-length = 100
+# Aligné sur REQUIRED_PYTHON_VER de notre plancher : Home Assistant 2026.1
+# exige « >=3.13.2 ». Cibler plus haut autoriserait pyupgrade à écrire une
+# syntaxe qu'un utilisateur du plancher ne pourrait pas importer.
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "ASYNC", # flake8-async
+    "G",     # flake8-logging-format
+    "LOG",   # flake8-logging
+    "RUF",   # règles propres à ruff
+    "DTZ",   # flake8-datetimez
+]
+
+# ASYNC est la règle qui compte le plus ici, et elle compte davantage que sur le
+# dépôt d'origine. Cette intégration fait trois choses que Python sait faire en
+# bloquant sans rien dire : ouvrir une socket vers le NAS, lire /proc/mounts, et
+# copier des gigaoctets avec shutil. Chacune, laissée dans la boucle
+# d'événements, gèle Home Assistant entier — interface comprise — pendant toute
+# la durée de la copie. ASYNC210 attrape l'appel réseau bloquant ; le reste est
+# verrouillé par la revue et par `run_executor`, injecté dans repair.py.
+#
+# DTZ verrouille les horodatages du contrat de remédiation, qui sont tous des
+# INSTANTS en UTC (dt_util.utcnow()). Aucune exemption n'est prévue : il n'y a
+# aucune date civile dans ce dépôt, contrairement au calendrier d'où viennent
+# ces conventions. Une exemption qui apparaîtrait est le signe qu'on a recopié
+# du code qui n'a pas lieu d'être ici.

@@ -1,0 +1,37 @@
+repair:
+  fields:
+    mount:
+      example: nas_media
+      selector:
+        text:
+    addon:
+      example: ccab4aaf_frigate
+      selector:
+        text:
+
+cancel:
+  fields:
+    mount:
+      example: nas_media
+      selector:
+        text:
+    addon:
+      example: ccab4aaf_frigate
+      selector:
+        text:
+
+set_mode:
+  fields:
+    mount:
+      required: true
+      example: nas_media
+      selector:
+        text:
+    mode:
+      required: true
+      example: local_fallback
+      selector:
+        select:
+          options:
+            - local_fallback
+            - stop_only

@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements_test.txt
+            custom_components/addon_mount_guard/manifest.json
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install -r requirements_test.txt
+          python scripts/manifest_requirements.py
+          python -m pip install -r manifest-requirements.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Six fichiers, et tests/test_manifest.py vérifie qu'ils restent
+      # synchronisés : une substitution qui ne matche plus échoue
+      # silencieusement, et sur CARD_VERSION ça ferait resservir un bundle
+      # périmé derrière un cache-buster frais.
+      - name: Update versions in all source files
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" \
+            custom_components/addon_mount_guard/manifest.json
+          sed -i "s/^CARD_VERSION = \".*\"$/CARD_VERSION = \"${VERSION}\"/" \
+            custom_components/addon_mount_guard/__init__.py
+          sed -i "s/export const MOUNT_GUARD_CARD_VERSION = '.*';/export const MOUNT_GUARD_CARD_VERSION = '${VERSION}';/" \
+            frontend/src/version.ts
+          (cd frontend && npm version --no-git-tag-version --allow-same-version "${VERSION}")
+
+      - name: Rebuild frontend bundle with new version
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run build
+
+      # Après le bump et le rebuild : c'est le code réellement publié qu'on
+      # teste, pas celui d'avant substitution des versions.
+      - name: Run tests
+        run: pytest -q
+
+      - name: Commit version bump and rebuilt bundle
+        run: |
+          git config user.name "Eric-D"
+          git config user.email "Eric-D@users.noreply.github.com"
+          git add \
+            custom_components/addon_mount_guard/manifest.json \
+            custom_components/addon_mount_guard/__init__.py \
+            custom_components/addon_mount_guard/www/mount-guard-card.js \
+            frontend/src/version.ts \
+            frontend/package.json \
+            frontend/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+            git push origin main
+            git tag -f "$GITHUB_REF_NAME"
+            git push origin "$GITHUB_REF_NAME" --force
+          fi
+
+      - name: Generate changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | sed -n '2p')
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s" "${PREV_TAG}..HEAD")
+          fi
+          {
+            echo "## Changements"
+            echo ""
+            echo "$CHANGELOG"
+          } > RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: false
+          # Une version portant un suffixe (-alpha, -beta, -rc) est publiée en
+          # pré-version. HACS ne les propose qu'aux utilisateurs qui ont coché
+          # « afficher les versions bêta » : c'est ce qui permet de publier une
+          # alpha sans la pousser à tout le monde.
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}

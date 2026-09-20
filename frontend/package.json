@@ -1,0 +1,25 @@
+{
+  "name": "mount-guard-card-frontend",
+  "version": "0.1.0-alpha.1",
+  "description": "Lovelace card sources for ha-mount-guardian",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "watch": "node build.mjs --watch",
+    "lint": "oxlint src test",
+    "test": "node --conditions=browser --experimental-transform-types --import ./test/_setup.ts --test 'test/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "esbuild": "^0.28.0",
+    "happy-dom": "^20.14.5",
+    "lit": "^3.2.1",
+    "oxlint": "^1.82.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

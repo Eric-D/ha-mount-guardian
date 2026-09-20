@@ -1,0 +1,17 @@
+# Normalisation des fins de ligne pour éviter le drift CI Linux ↔ devs Windows.
+# esbuild produit du LF — le repo doit donc stocker du LF partout.
+
+* text=auto eol=lf
+
+# Sources et configs textuelles : LF strict
+*.js   text eol=lf
+*.ts   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+
+# Binaires
+*.png  binary
