@@ -768,10 +768,15 @@ rien en local ne les voit :
   `custom_components/addon_mount_guard/brand/`, soit par une entrée dans
   `home-assistant/brands`.
 
-Le troisième est **désactivé** dans `validate.yml` (`ignore: brands`) le temps
-de l'alpha. C'est le seul contrôle HACS neutralisé, et il doit être réactivé
-avant la première version stable : sans images, la fiche du dépôt reste sans
-visuel dans HACS.
+Le troisième est **désactivé** dans `validate.yml` (`ignore: brands`), et c'est
+assumé, y compris en version stable. Sa portée est purement cosmétique : ce
+contrôle conditionne l'entrée au **magasin HACS par défaut**, pas l'installation
+depuis un dépôt personnalisé. Sans images, l'intégration s'installe et
+fonctionne — sa fiche n'a simplement pas de visuel.
+
+C'est le seul contrôle HACS neutralisé. Le jour où les images arrivent, retirer
+cette ligne est la première chose à faire : elle masquerait alors un vrai
+défaut.
 
 Le workflow de release marque une **pré-version** dès que le tag porte un
 suffixe (`-alpha`, `-beta`, `-rc`). HACS ne propose une pré-version qu'aux

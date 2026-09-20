@@ -16,14 +16,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # `ignore: brands` est TEMPORAIRE, le temps de l'alpha.
+      # `ignore: brands` : seul contrôle HACS neutralisé, et il l'est en
+      # connaissance de cause.
       #
-      # HACS exige soit des images de marque dans
-      # custom_components/addon_mount_guard/brand/, soit une entrée dans le
-      # dépôt home-assistant/brands. Il n'y en a encore ni l'une ni l'autre.
-      # C'est le seul contrôle HACS désactivé, et il doit être réactivé avant
-      # la première version stable : sans images, la fiche du dépôt reste sans
-      # visuel dans HACS.
+      # HACS attend des images de marque dans
+      # custom_components/addon_mount_guard/brand/, ou une entrée dans le dépôt
+      # home-assistant/brands. Il n'y en a ni l'une ni l'autre, par choix.
+      #
+      # La portée est purement cosmétique : ce contrôle conditionne l'entrée au
+      # magasin HACS par défaut, pas l'installation depuis un dépôt
+      # personnalisé. Sans images, l'intégration s'installe et fonctionne — sa
+      # fiche n'a simplement pas de visuel. Le jour où les images arrivent,
+      # retirer cette ligne est la première chose à faire : elle masquerait
+      # alors un vrai défaut.
       - name: HACS validation
         uses: hacs/action@main
         with:

@@ -1,4 +1,4 @@
-export const MOUNT_GUARD_CARD_VERSION = '0.1.0-alpha.2';
+export const MOUNT_GUARD_CARD_VERSION = '1.0.0';
 
 export function logBanner(): void {
   // console volontaire : c'est la convention des cartes Lovelace, et le bandeau
