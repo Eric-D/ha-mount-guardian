@@ -1,6 +1,6 @@
 {
   "name": "mount-guard-card-frontend",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Lovelace card sources for ha-mount-guardian",
   "private": true,
   "type": "module",

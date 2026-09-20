@@ -60,7 +60,7 @@ PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.S
 
 type MountGuardConfigEntry = ConfigEntry[MountGuardRuntimeData]
 
-CARD_VERSION = "0.1.0-alpha.1"
+CARD_VERSION = "0.1.0-alpha.2"
 CARD_URL = f"/{DOMAIN}/mount-guard-card.js"
 # Même URL exacte pour les deux mécanismes d'injection : un module ES n'est
 # évalué qu'une fois par URL, donc le double enregistrement est gratuit.

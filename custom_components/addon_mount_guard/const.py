@@ -63,6 +63,24 @@ OVERWRITE_NEVER = "never"
 OVERWRITE_MODES = (OVERWRITE_KEEP_NEWEST, OVERWRITE_ALWAYS, OVERWRITE_NEVER)
 DEFAULT_OVERWRITE = OVERWRITE_KEEP_NEWEST
 
+CONF_CONCURRENCY = "concurrency"
+
+# Copies menées de front pendant le rapatriement, réglable par montage.
+#
+# Le coût d'un rapatriement n'est pas le débit, c'est la LATENCE : un partage
+# CIFS répond en quelques millisecondes, et rapatrier des dizaines de milliers
+# de vignettes passe l'essentiel du temps à attendre des allers-retours. Mesuré
+# sur une installation réelle : environ dix fichiers par seconde en
+# séquentiel, soit plus de deux heures pour 83 000 fichiers.
+#
+# Huit threads attendent huit fois plus efficacement. Au-delà, on sature les
+# connexions simultanées qu'un NAS grand public accepte, et on gagne surtout
+# des délais d'attente. `1` rétablit le parcours strictement séquentiel, utile
+# pour reproduire un incident.
+DEFAULT_CONCURRENCY = 8
+MIN_CONCURRENCY = 1
+MAX_CONCURRENCY = 32
+
 SUBENTRY_TYPE_ADDON = "addon"
 
 # --- Supervisor ---------------------------------------------------------

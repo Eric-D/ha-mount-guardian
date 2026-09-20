@@ -63,12 +63,14 @@
             "mounts": "Network storage",
             "host": "NAS host or IP",
             "mode": "Behaviour on failure",
-            "overwrite": "When moving files back"
+            "overwrite": "When moving files back",
+            "concurrency": "Simultaneous copies"
           },
           "data_description": {
             "host": "Probed with a TCP connection on the share's port to tell when the NAS is back.",
             "mode": "\"Local fallback\" lets the add-on write locally and moves the files back afterwards. \"Stop only\" stops the add-on and moves nothing.",
-            "overwrite": "What to do with a file that exists on both sides when moving files back."
+            "overwrite": "What to do with a file that exists on both sides when moving files back.",
+            "concurrency": "A network share answers in milliseconds: moving thousands of small files back spends its time waiting. Several copies at once wait in parallel. Lower it if the NAS refuses concurrent connections."
           }
         }
       },

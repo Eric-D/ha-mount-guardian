@@ -22,11 +22,14 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import threading
 from collections.abc import Callable, Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 
 from .const import (
+    DEFAULT_CONCURRENCY,
     DEFAULT_OVERWRITE,
     OVERWRITE_ALWAYS,
     OVERWRITE_NEVER,
@@ -254,7 +257,22 @@ class RestoreResult:
 ProgressCallback = Callable[[int, int, str], None]
 
 
-def _should_copy(source: Path, target: Path, overwrite: str) -> bool:
+def _stat_or_none(path: Path) -> os.stat_result | None:
+    """`stat`, ou None si le fichier n'est pas là.
+
+    Un seul aller-retour, là où `exists()` puis `stat()` en font deux. Sur un
+    partage réseau, la différence n'est pas cosmétique : c'est la moitié du
+    coût de la vérification, répétée par fichier.
+    """
+    try:
+        return path.stat()
+    except OSError:
+        return None
+
+
+def _should_copy(
+    source: os.stat_result, target: os.stat_result | None, overwrite: str
+) -> bool:
     """Le fichier local doit-il remplacer celui qui est déjà sur le NAS ?
 
     La politique est réglée **par montage** et non globalement : un partage
@@ -263,10 +281,13 @@ def _should_copy(source: Path, target: Path, overwrite: str) -> bool:
     réponse. Un réglage unique obligerait à choisir la prudence pour tout le
     monde, donc à laisser Frigate perdre les siens.
 
+    Reçoit des `stat_result` déjà obtenus, et ne touche pas au disque : sur
+    83 000 fichiers, un `stat` de plus par fichier coûte des minutes.
+
     Un fichier absent côté NAS est toujours copié, quelle que soit la politique :
     aucune des trois ne dit « jeter ».
     """
-    if not target.exists():
+    if target is None:
         return True
     if overwrite == OVERWRITE_ALWAYS:
         return True
@@ -276,86 +297,229 @@ def _should_copy(source: Path, target: Path, overwrite: str) -> bool:
     # qui ne perd rien. Un réglage illisible — configuration écrite à la main,
     # option retirée d'une version future — ne doit pas se traduire par un
     # écrasement.
-    return source.stat().st_mtime > target.stat().st_mtime
+    return source.st_mtime > target.st_mtime
+
+
+def _copy_one(source: Path, target: Path, source_stat: os.stat_result) -> None:
+    """Copie un fichier en préservant sa date, et rien d'autre.
+
+    `copyfile` + `os.utime` plutôt que `copy2`, qui appelle en plus `chmod` et
+    la copie des attributs étendus — deux à trois allers-retours de plus par
+    fichier sur un partage réseau.
+
+    Ce qu'on perd est sans objet ici : les permissions d'un fichier sur un
+    partage CIFS sont **imposées par les options de montage** (`uid`, `gid`,
+    `file_mode`), et un `chmod` y est au mieux ignoré. Ce qu'on garde est ce
+    dont tout dépend : la date de modification, sur laquelle repose la
+    politique `keep_newest` et le classement des enregistrements.
+    """
+    shutil.copyfile(source, target)
+    os.utime(target, (source_stat.st_atime, source_stat.st_mtime))
 
 
 def restore(
     path: Path,
     *,
     overwrite: str = DEFAULT_OVERWRITE,
+    concurrency: int = DEFAULT_CONCURRENCY,
     on_progress: ProgressCallback | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> RestoreResult:
     """Étape 4 : rapatrie `path_local/` dans `path/`, maintenant monté.
 
-    Trois règles, chacune payée par un scénario de perte :
+    Trois règles de sûreté, chacune payée par un scénario de perte :
 
-    - **un fichier plus récent côté NAS n'est jamais écrasé.** Pendant la panne,
-      un autre appareil a pu écrire sur le partage. Sa version est la bonne ; la
-      nôtre a été écrite en aveugle par un add-on qui croyait parler au NAS.
-    - **l'annulation n'est consultée qu'entre deux fichiers.** Interrompre un
-      `copy2` laisse un fichier tronqué sur le NAS, indiscernable d'un fichier
+    - **la politique d'écrasement est réglée par montage** (`overwrite`), et son
+      défaut ne perd rien : le fichier le plus récent gagne. Pendant la panne,
+      un autre appareil a pu écrire sur le partage, et sa version est alors la
+      bonne. Un montage dont l'add-on est le seul écrivain se règle en
+      `always` ; un partage où le NAS fait autorité, en `never`.
+    - **l'annulation n'est consultée qu'entre deux fichiers.** Interrompre une
+      copie laisse un fichier tronqué sur le NAS, indiscernable d'un fichier
       valide. `cancel` est un service que l'utilisateur déclenche ; il ne doit
       pas pouvoir corrompre quoi que ce soit.
     - **`path_local` n'est supprimé qu'à la fin, et seulement si tout est
       passé.** Voir l'en-tête du module.
 
-    Les métadonnées sont préservées (`copy2`) : une date de modification perdue
-    ferait réécrire le fichier au rapatriement suivant, et surtout Frigate range
-    ses enregistrements par date. C'est aussi ce dont dépend `keep_newest` —
-    une copie qui ne préserverait pas la date daterait tous les fichiers de
-    l'instant du rapatriement, et le montage suivant les croirait tous récents.
+    **Le coût réel est la latence, pas le débit.** Un partage CIFS répond en
+    quelques millisecondes, et un rapatriement de dizaines de milliers de
+    vignettes passe l'essentiel de son temps à attendre des allers-retours
+    plutôt qu'à transférer des octets. Trois choses en découlent, et ce sont
+    elles qui font la vitesse de cette fonction :
+
+    1. **un `mkdir` par répertoire, pas par fichier** — `seen_dirs` ;
+    2. **un seul `stat` de la destination** (`_stat_or_none`) au lieu d'un
+       `exists()` suivi d'un `stat()` ;
+    3. **`copyfile` + `utime`** au lieu de `copy2` — voir `_copy_one`.
+
+    `concurrency` attaque la latence de front : les copies sont réparties sur
+    un petit groupe de threads, qui attendent le réseau en parallèle. C'est le
+    seul levier qui change l'ordre de grandeur sur un corpus de petits
+    fichiers. `1` rétablit le parcours strictement séquentiel.
     """
     stashed = stash_dir(path)
     if not stashed.exists():
         return RestoreResult(0, 0, 0, cancelled=False, errors=())
 
-    copied = 0
-    skipped = 0
-    bytes_done = 0
-    errors: list[str] = []
+    state = _RestoreState(
+        path=path,
+        stashed=stashed,
+        overwrite=overwrite,
+        on_progress=on_progress,
+        should_cancel=should_cancel,
+    )
 
-    for source in iter_files(stashed):
-        if should_cancel is not None and should_cancel():
-            _LOGGER.info("Rapatriement de %s annulé entre deux fichiers", path)
-            return RestoreResult(copied, skipped, bytes_done, cancelled=True, errors=tuple(errors))
+    if concurrency <= 1:
+        for source in iter_files(stashed):
+            if state.stop_requested():
+                break
+            state.handle(source)
+    else:
+        state.run_concurrently(concurrency)
 
-        relative = source.relative_to(stashed)
-        target = path / relative
-        try:
-            size = source.stat().st_size
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if _should_copy(source, target, overwrite):
-                shutil.copy2(source, target)
-                copied += 1
-            else:
-                skipped += 1
-            bytes_done += size
-        except OSError as err:
-            # On continue : un fichier illisible ne doit pas empêcher les mille
-            # autres de rentrer. `complete` restera faux, donc la source sera
-            # conservée et la prochaine tentative reprendra celui-là.
-            _LOGGER.warning("Rapatriement de %s impossible : %s", relative, err)
-            errors.append(f"{relative} : {err}")
-            continue
-
-        if on_progress is not None:
-            on_progress(copied + skipped, bytes_done, str(relative))
-
-    result = RestoreResult(copied, skipped, bytes_done, cancelled=False, errors=tuple(errors))
+    result = state.result()
     if result.complete:
         shutil.rmtree(stashed, ignore_errors=True)
         _LOGGER.info(
             "Rapatriement de %s terminé : %d copiés, %d déjà à jour côté NAS",
             path,
-            copied,
-            skipped,
+            result.copied,
+            result.skipped,
         )
     else:
         _LOGGER.warning(
-            "Rapatriement de %s incomplet (%d erreurs) : %s conservé",
+            "Rapatriement de %s incomplet (%s) : %s conservé",
             path,
-            len(errors),
+            "annulé" if result.cancelled else f"{len(result.errors)} erreurs",
             stashed,
         )
     return result
+
+
+class _RestoreState:
+    """L'état partagé d'un rapatriement, séquentiel ou concurrent.
+
+    Une classe et non des variables locales : avec plusieurs threads, les
+    compteurs doivent être protégés, et les avoir tous au même endroit est ce
+    qui garantit qu'aucun n'a été oublié.
+
+    Deux verrous distincts, et c'est délibéré. `_lock` ne protège que des
+    incréments — aucune E/S dessous, sinon il sérialiserait exactement ce qu'on
+    cherche à paralléliser. `_dirs_lock`, lui, couvre bien un `mkdir` : voir
+    `_ensure_dir`.
+    """
+
+    def __init__(
+        self,
+        *,
+        path: Path,
+        stashed: Path,
+        overwrite: str,
+        on_progress: ProgressCallback | None,
+        should_cancel: Callable[[], bool] | None,
+    ) -> None:
+        self.path = path
+        self.stashed = stashed
+        self.overwrite = overwrite
+        self.on_progress = on_progress
+        self.should_cancel = should_cancel
+
+        self._lock = threading.Lock()
+        self._dirs_lock = threading.Lock()
+        self._seen_dirs: set[Path] = set()
+        self.copied = 0
+        self.skipped = 0
+        self.bytes_done = 0
+        self.errors: list[str] = []
+        self.cancelled = False
+
+    def stop_requested(self) -> bool:
+        if self.should_cancel is not None and self.should_cancel():
+            self.cancelled = True
+            return True
+        return False
+
+    def _ensure_dir(self, parent: Path) -> None:
+        """Un `mkdir` par répertoire, pas par fichier.
+
+        C'est l'économie la plus rentable de la fonction : Frigate range ses
+        enregistrements par caméra et par heure, donc quelques centaines de
+        répertoires pour des dizaines de milliers de fichiers.
+        """
+        with self._dirs_lock:
+            if parent in self._seen_dirs:
+                return
+            # Le `mkdir` se fait SOUS le verrou, et c'est la seule E/S de ce
+            # module qui s'y trouve. Marquer le répertoire comme vu avant de
+            # l'avoir créé laisse un second thread copier dedans pendant que le
+            # premier attend encore le réseau : `FileNotFoundError` sur la
+            # destination, de façon intermittente et seulement en concurrence.
+            # C'est exactement ce qu'a montré
+            # `test_a_cancelled_run_resumes_and_finishes`.
+            #
+            # Le coût est négligeable : une fois par répertoire, pas par
+            # fichier. Et si le `mkdir` échoue, le répertoire n'est pas
+            # mémorisé, donc le fichier suivant réessaiera.
+            parent.mkdir(parents=True, exist_ok=True)
+            self._seen_dirs.add(parent)
+
+    def handle(self, source: Path) -> None:
+        relative = source.relative_to(self.stashed)
+        target = self.path / relative
+        try:
+            source_stat = source.stat()
+            self._ensure_dir(target.parent)
+            if _should_copy(source_stat, _stat_or_none(target), self.overwrite):
+                _copy_one(source, target, source_stat)
+                copied = True
+            else:
+                copied = False
+        except OSError as err:
+            # On continue : un fichier illisible ne doit pas empêcher les
+            # milliers d'autres de rentrer. `complete` restera faux, donc la
+            # source sera conservée et la prochaine tentative reprendra
+            # celui-là.
+            _LOGGER.warning("Rapatriement de %s impossible : %s", relative, err)
+            with self._lock:
+                self.errors.append(f"{relative} : {err}")
+            return
+
+        with self._lock:
+            if copied:
+                self.copied += 1
+            else:
+                self.skipped += 1
+            self.bytes_done += source_stat.st_size
+            done = self.copied + self.skipped
+            total = self.bytes_done
+        if self.on_progress is not None:
+            self.on_progress(done, total, str(relative))
+
+    def run_concurrently(self, concurrency: int) -> None:
+        """Répartit les copies sur un petit groupe de threads.
+
+        Le nombre de tâches en vol est **borné** : soumettre les 83 000 fichiers
+        d'un coup construirait autant d'objets `Future` avant d'en exécuter un
+        seul, et rendrait l'annulation aussi lente que le rapatriement.
+
+        L'annulation reste consultée **avant chaque soumission**, donc toujours
+        entre deux fichiers : aucune copie n'est interrompue en cours.
+        """
+        pending: set[Future] = set()
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            for source in iter_files(self.stashed):
+                if self.stop_requested():
+                    break
+                pending.add(pool.submit(self.handle, source))
+                if len(pending) >= concurrency * 2:
+                    _done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            wait(pending)
+
+    def result(self) -> RestoreResult:
+        return RestoreResult(
+            self.copied,
+            self.skipped,
+            self.bytes_done,
+            cancelled=self.cancelled,
+            errors=tuple(self.errors),
+        )

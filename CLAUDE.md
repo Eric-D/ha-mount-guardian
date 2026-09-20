@@ -176,6 +176,49 @@ piège qui fait écrire l'étape 2 à l'envers la première fois.
   valide. `cancel` est un service que l'utilisateur déclenche ; il ne doit pas
   pouvoir corrompre quoi que ce soit.
 
+### Le coût d'un rapatriement est la LATENCE, pas le débit
+
+Mesuré sur une installation réelle : **une dizaine de fichiers par seconde** en
+séquentiel, soit plus de deux heures pour 83 000 vignettes de Frigate — alors
+que le débit ne dépassait pas 200 ko/s. Un partage CIFS répond en quelques
+millisecondes, et chaque fichier coûtait cinq à six allers-retours.
+
+Quatre décisions de `fileops.restore` en découlent, et aucune n'est
+cosmétique :
+
+1. **un `mkdir` par répertoire, pas par fichier** (`_RestoreState._ensure_dir`).
+   Frigate range par caméra et par heure : quelques centaines de répertoires
+   pour des dizaines de milliers de fichiers ;
+2. **un seul `stat` de la destination** (`_stat_or_none`), là où `exists()`
+   puis `stat()` en faisaient deux ;
+3. **`copyfile` + `os.utime`** au lieu de `copy2` (`_copy_one`). Ce qu'on perd
+   est sans objet : les permissions d'un fichier sur un partage CIFS sont
+   **imposées par les options de montage** (`uid`, `gid`, `file_mode`), et un
+   `chmod` y est au mieux ignoré. Ce qu'on garde est ce dont tout dépend — la
+   date de modification, sur laquelle reposent `keep_newest` et le classement
+   des enregistrements ;
+4. **`concurrency`, réglable par montage** (8 par défaut). C'est le seul levier
+   qui change l'ordre de grandeur : huit threads attendent le réseau huit fois
+   plus efficacement.
+
+Deux conséquences à ne pas défaire :
+
+- **`_ensure_dir` fait son `mkdir` SOUS le verrou.** Marquer le répertoire
+  comme vu avant de l'avoir créé laisse un second thread copier dedans pendant
+  que le premier attend encore le réseau : `FileNotFoundError` sur la
+  destination, de façon intermittente et seulement en concurrence. C'est un
+  vrai bug, attrapé par `test_a_cancelled_run_resumes_and_finishes`.
+- **L'ordre de la progression n'est plus déterministe** au-delà de
+  `concurrency=1`. Le parcours (`iter_files`) reste trié, mais l'ordre
+  d'achèvement ne l'est pas, et `current_file` désigne l'un des fichiers en
+  vol. Les **compteurs**, eux, restent monotones : ils sont incrémentés sous
+  `_lock`, et `test_the_progress_counters_never_go_backwards` le vérifie — une
+  barre qui recule est le symptôme le plus visible d'un état partagé mal
+  protégé.
+
+`_lock` ne couvre que des incréments : y mettre une E/S sérialiserait
+exactement ce qu'on cherche à paralléliser.
+
 ### La politique d'écrasement est réglée **par montage**
 
 `overwrite` : `keep_newest` (défaut), `always`, `never`. Un partage
@@ -521,12 +564,35 @@ le flux n'ordonnent rien de la même façon, et une fusion positionnelle
 écraserait la remédiation d'un montage avec celle d'un autre — silencieusement,
 et seulement quand plusieurs montages sont en panne à la fois.
 
-### La progression se calcule sur les octets
+### La progression se calcule sur les octets, et le pourcentage est annoncé avec eux
 
 `helpers/progress.ts`. Mille vignettes et un enregistrement d'une heure font
 1001 fichiers, dont un seul pèse. Une barre en fichiers sauterait à 99 % en deux
 secondes puis n'avancerait plus pendant dix minutes — le comportement qui fait
 croire à un blocage. Repli sur les fichiers quand `bytes_total` vaut 0.
+
+**Le pourcentage est donc affiché à côté des octets, pas du compteur de
+fichiers.** Collé à ce dernier, il se lisait comme le leur : un premier
+rapatriement réel affichait « 447 / 83136 fichiers (0 %) » alors que les
+fichiers en étaient à 0,5 % — les deux ratios diffèrent d'un facteur cent sur
+un corpus où quelques enregistrements pèsent l'essentiel.
+
+### Le débit et le temps restant sont mesurés côté carte
+
+`helpers/rate.ts`. Côté carte et non côté backend, parce que le backend n'a
+rien à en dire de plus : il publierait le même calcul, au prix d'un champ de
+plus dans le contrat et d'un miroir de plus à tenir d'accord.
+
+La mesure part du **premier échantillon vu pour cette tentative**, jamais de
+`started_at` : celui-ci couvre aussi l'arrêt des add-ons, la mise de côté et le
+rechargement, qui ne transfèrent aucun octet. Sur une séquence où l'arrêt d'un
+Frigate prend trente secondes, l'inclure annoncerait le double du temps réel
+pendant les premières minutes.
+
+Rien n'est annoncé tant que l'intervalle fait moins d'une seconde ou qu'aucun
+octet n'a bougé : sur un intervalle plus court, le bruit d'échantillonnage fait
+sauter l'estimation d'un facteur dix, et un temps restant qui saute est pire
+que pas de temps restant du tout.
 
 ### Le temps passe côté carte, mais rien d'autre
 

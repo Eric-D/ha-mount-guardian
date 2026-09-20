@@ -104,6 +104,38 @@ describe('remédiation en cours', () => {
     assert.match(numbers, /Go \/ /);
   });
 
+  test('le pourcentage est annoncé avec les OCTETS, pas avec les fichiers', () => {
+    // Sur un corpus où quelques enregistrements pèsent l'essentiel, les deux
+    // ratios diffèrent d'un facteur cent : « 447 / 83136 fichiers (0 %) » se
+    // lit comme un compteur de fichiers faux.
+    const spans = all(row(repairing), '.numbers span');
+    assert.doesNotMatch(spans[0].textContent ?? '', /%/);
+    assert.match(spans[1].textContent ?? '', /%/);
+  });
+
+  test('sans débit mesuré, aucune ligne de débit', () => {
+    // Mieux vaut ne rien annoncer qu'une estimation qui saute d'un facteur dix.
+    assert.equal(row(repairing).querySelector('.numbers.rate'), null);
+  });
+
+  test('le débit et le temps restant s’affichent quand ils sont connus', () => {
+    // Sur un rapatriement de deux heures, c'est la seule information qui dise
+    // à l'utilisateur s'il doit attendre ou aller se coucher.
+    const host = row(repairing, { rate: { bytesPerSecond: 12_300_000, etaSeconds: 4800 } });
+    const rate = text(host, '.numbers.rate');
+    // Même règle que pour les tailles : une décimale sous dix, aucune
+    // au-dessus. Un débit qui gagne une décimale à chaque seconde fait
+    // sauter la colonne.
+    assert.match(rate, /12 Mo\/s/);
+    assert.match(rate, /≈ 1 h 20 restantes/);
+  });
+
+  test('un rapatriement qui se termine n’annonce pas de temps restant', () => {
+    const host = row(repairing, { rate: { bytesPerSecond: 12_300_000, etaSeconds: null } });
+    assert.match(text(host, '.numbers.rate'), /Mo\/s/);
+    assert.doesNotMatch(text(host, '.numbers.rate'), /restantes/);
+  });
+
   test('le fichier courant est tronqué mais reste entier dans l’infobulle', () => {
     const current = row(repairing).querySelector('.current') as HTMLElement;
     assert.equal(current.getAttribute('title'), repairing.current_file);

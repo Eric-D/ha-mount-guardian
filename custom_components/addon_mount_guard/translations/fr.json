@@ -63,12 +63,14 @@
             "mounts": "Stockages réseau",
             "host": "Hôte ou IP du NAS",
             "mode": "Comportement en cas de panne",
-            "overwrite": "Au rapatriement"
+            "overwrite": "Au rapatriement",
+            "concurrency": "Copies simultanées"
           },
           "data_description": {
             "host": "Testé par une connexion TCP sur le port du partage pour savoir quand le NAS est de retour.",
             "mode": "« Repli local » laisse l'add-on écrire en local puis rapatrie. « Arrêt seul » arrête l'add-on sans rien déplacer.",
-            "overwrite": "Que faire d'un fichier présent des deux côtés au moment de rapatrier."
+            "overwrite": "Que faire d'un fichier présent des deux côtés au moment de rapatrier.",
+            "concurrency": "Un partage réseau répond en quelques millisecondes : rapatrier des milliers de petits fichiers passe son temps à attendre. Plusieurs copies de front attendent en parallèle. Réduire si le NAS refuse les connexions simultanées."
           }
         }
       },

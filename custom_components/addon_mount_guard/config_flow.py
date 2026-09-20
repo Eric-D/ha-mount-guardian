@@ -48,6 +48,7 @@ from homeassistant.helpers.selector import (
 
 from . import update_entry_and_ensure_reload
 from .const import (
+    CONF_CONCURRENCY,
     CONF_HOST,
     CONF_MIN_FREE_RATIO,
     CONF_MODE,
@@ -57,15 +58,18 @@ from .const import (
     CONF_RETRY_INTERVAL,
     CONF_SCAN_INTERVAL,
     CONF_SLUG,
+    DEFAULT_CONCURRENCY,
     DEFAULT_MIN_FREE_RATIO,
     DEFAULT_NOTIFY,
     DEFAULT_OVERWRITE,
     DEFAULT_RETRY_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_CONCURRENCY,
     MAX_MIN_FREE_RATIO,
     MAX_RETRY_INTERVAL,
     MAX_SCAN_INTERVAL,
+    MIN_CONCURRENCY,
     MIN_RETRY_INTERVAL,
     MIN_SCAN_INTERVAL,
     OVERWRITE_MODES,
@@ -322,6 +326,7 @@ class AddonSubentryFlow(ConfigSubentryFlow):
                     CONF_HOST: host,
                     CONF_MODE: user_input[CONF_MODE],
                     CONF_OVERWRITE: user_input[CONF_OVERWRITE],
+                    CONF_CONCURRENCY: int(user_input[CONF_CONCURRENCY]),
                     "usage": by_name[name].usage,
                 }
             update_entry_and_ensure_reload(
@@ -369,6 +374,14 @@ class AddonSubentryFlow(ConfigSubentryFlow):
                             options=list(OVERWRITE_MODES),
                             translation_key="overwrite",
                             mode=SelectSelectorMode.LIST,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_CONCURRENCY,
+                        default=seed.get(CONF_CONCURRENCY, DEFAULT_CONCURRENCY),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_CONCURRENCY, max=MAX_CONCURRENCY, step=1, mode="slider"
                         )
                     ),
                 }

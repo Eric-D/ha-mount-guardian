@@ -1,7 +1,8 @@
 import { html, type TemplateResult } from 'lit';
 
-import { formatBytes, truncatePath } from '../helpers/format.js';
+import { formatBytes, formatDuration, truncatePath } from '../helpers/format.js';
 import { percent, type Progress } from '../helpers/progress.js';
+import type { Rate } from '../helpers/rate.js';
 import type { StepCell } from '../helpers/steps.js';
 
 /** Le stepper dessine **`step_count` cases**, pas la longueur de la séquence
@@ -26,9 +27,13 @@ export function renderStepper(cells: readonly StepCell[]): TemplateResult {
 export function renderProgress({
   progress,
   currentFile,
+  rate,
 }: {
   progress: Progress;
   currentFile: string | null;
+  /** null tant que le débit n'est pas mesurable : mieux vaut ne rien annoncer
+      qu'une estimation qui saute d'un facteur dix. */
+  rate: Rate | null;
 }): TemplateResult {
   const width = progress.ratio === null ? 0 : progress.ratio * 100;
   return html`
@@ -43,12 +48,26 @@ export function renderProgress({
         <div class="fill" style="width: ${width}%"></div>
       </div>
       <div class="numbers">
+        <span>${progress.filesDone} / ${progress.filesTotal} fichiers</span>
+        <!-- Le pourcentage est celui des OCTETS : il est donc annoncé à côté
+             des octets, et non collé au compteur de fichiers, où il se lisait
+             comme le leur. Sur un corpus où quelques enregistrements pèsent
+             l'essentiel, les deux ratios diffèrent d'un facteur cent. -->
         <span
-          >${progress.filesDone} / ${progress.filesTotal} fichiers
+          >${formatBytes(progress.bytesDone)} / ${formatBytes(progress.bytesTotal)}
           ${progress.ratio === null ? '' : `(${percent(progress.ratio)})`}</span
         >
-        <span>${formatBytes(progress.bytesDone)} / ${formatBytes(progress.bytesTotal)}</span>
       </div>
+      ${rate
+        ? html`<div class="numbers rate">
+            <span>${formatBytes(rate.bytesPerSecond)}/s</span>
+            <span
+              >${rate.etaSeconds === null
+                ? ''
+                : `≈ ${formatDuration(rate.etaSeconds)} restantes`}</span
+            >
+          </div>`
+        : ''}
       ${currentFile
         ? html`<div class="current" title=${currentFile}>${truncatePath(currentFile)}</div>`
         : ''}

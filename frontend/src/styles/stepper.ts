@@ -80,6 +80,11 @@ export const stepperStyles = css`
     color: var(--secondary-text-color);
   }
 
+  .numbers.rate {
+    margin-top: 2px;
+    opacity: 0.85;
+  }
+
   .current {
     margin-top: 2px;
     font-size: 0.78rem;

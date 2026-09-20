@@ -2,6 +2,7 @@ import { LitElement, html, type PropertyValues, type TemplateResult } from 'lit'
 import { state } from 'lit/decorators.js';
 
 import { RetryScheduler } from './helpers/retry.js';
+import { RateTracker } from './helpers/rate.js';
 import { emptyReason, visibleMounts } from './helpers/sort.js';
 import { merge, RemediationFeed } from './helpers/subscribe.js';
 import { renderEmpty, renderHeader, renderLoader, renderNotice } from './renders/chrome.js';
@@ -78,6 +79,7 @@ export class MountGuardCard extends LitElement {
     },
     () => this.requestUpdate()
   );
+  private _rates = new RateTracker();
   private _tick: ReturnType<typeof setInterval> | null = null;
   private _lastTemplate?: TemplateResult;
   private _firstUpdateLogged = false;
@@ -249,6 +251,7 @@ export class MountGuardCard extends LitElement {
               renderMountRow({
                 remediation,
                 now: this._now,
+                rate: this._rateFor(remediation),
                 showHistory: config.show_history === true,
                 compact: config.compact === true,
                 onRepair: (mount) => this._call('repair', mount),
@@ -259,6 +262,16 @@ export class MountGuardCard extends LitElement {
     `;
     this._lastTemplate = template;
     return template;
+  }
+
+  private _rateFor(remediation: Remediation): ReturnType<RateTracker['measure']> {
+    if (remediation.state !== 'repairing') {
+      // Oublié dès la fin : une carte laissée ouverte une semaine garderait
+      // sinon un échantillon par montage réparé.
+      this._rates.forget(remediation.mount);
+      return null;
+    }
+    return this._rates.measure(remediation, this._now);
   }
 
   private _noticeMessage(): string | null {

@@ -168,18 +168,20 @@ class TestRestore:
         write(stashed / "a.txt", "12345")
         write(stashed / "b.txt", "123")
         seen: list[tuple[int, int, str]] = []
-        fileops.restore(mount, on_progress=lambda f, b, name: seen.append((f, b, name)))
+        fileops.restore(
+            mount, concurrency=1, on_progress=lambda f, b, name: seen.append((f, b, name))
+        )
         assert seen == [(1, 5, "a.txt"), (2, 8, "b.txt")]
 
-    def test_the_order_is_stable(self, mount):
-        """La progression doit avancer de la même façon d'une reprise à
-        l'autre, sans quoi le fichier courant sautille et donne l'impression que
-        la copie recommence."""
+    def test_the_order_is_stable_when_sequential(self, mount):
+        """`concurrency=1` explicitement : au-delà, l'ordre d'achèvement n'est
+        plus celui du parcours, et c'est le prix assumé de la parallélisation —
+        voir TestConcurrency. Le parcours lui-même (`iter_files`) reste trié."""
         stashed = fileops.stash_dir(mount)
         for name in ("c.txt", "a.txt", "b.txt"):
             write(stashed / name, "x")
         seen: list[str] = []
-        fileops.restore(mount, on_progress=lambda f, b, name: seen.append(name))
+        fileops.restore(mount, concurrency=1, on_progress=lambda f, b, name: seen.append(name))
         assert seen == ["a.txt", "b.txt", "c.txt"]
 
 
@@ -239,6 +241,135 @@ class TestOverwritePolicy:
         result = fileops.restore(conflit)
         assert (result.copied, result.skipped) == (0, 1)
         assert result.complete is True
+
+
+class TestConcurrency:
+    """Le seul levier qui change l'ordre de grandeur.
+
+    Le coût d'un rapatriement est la LATENCE, pas le débit : mesuré sur une
+    installation réelle, environ dix fichiers par seconde en séquentiel, soit
+    plus de deux heures pour 83 000 vignettes. Ces tests vérifient que le
+    parallélisme ne coûte aucune des garanties de sûreté.
+    """
+
+    @pytest.fixture
+    def many(self, mount):
+        stashed = fileops.stash_dir(mount)
+        for index in range(60):
+            write(stashed / f"dossier{index % 5}" / f"f{index:03d}.txt", "x" * (index + 1))
+        return mount
+
+    def test_everything_arrives(self, many):
+        result = fileops.restore(many, concurrency=8)
+        assert result.complete is True
+        assert result.copied == 60
+        assert sum(1 for _ in fileops.iter_files(many)) == 60
+        assert not fileops.stash_dir(many).exists()
+
+    def test_the_counters_are_exact(self, many):
+        """Incréments sous verrou. Sans lui, deux threads qui lisent-modifient
+        -écrivent le même compteur en perdent : la barre n'atteindrait jamais
+        son total, et `complete` porterait sur un décompte faux."""
+        expected_bytes = sum(index + 1 for index in range(60))
+        result = fileops.restore(many, concurrency=8)
+        assert (result.copied + result.skipped, result.bytes_done) == (60, expected_bytes)
+
+    def test_the_progress_counters_never_go_backwards(self, many):
+        """L'ordre des fichiers varie, mais le compteur qui pilote la barre doit
+        rester monotone : une barre qui recule est le symptôme le plus visible
+        d'un état partagé mal protégé."""
+        seen: list[int] = []
+        fileops.restore(many, concurrency=8, on_progress=lambda f, b, name: seen.append(f))
+        assert seen == sorted(seen)
+        assert seen[-1] == 60
+
+    def test_each_directory_is_created_once(self, many, monkeypatch):
+        """L'économie la plus rentable de la fonction : un `mkdir` par fichier
+        est un aller-retour réseau par fichier. Frigate range ses
+        enregistrements par caméra et par heure, donc quelques centaines de
+        répertoires pour des dizaines de milliers de fichiers."""
+        calls: list[Path] = []
+        real = Path.mkdir
+
+        def spy(self, *args, **kwargs):
+            calls.append(self)
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", spy)
+        fileops.restore(many, concurrency=8)
+        assert len(calls) == 5, calls
+
+    def test_cancellation_still_happens_between_files(self, many):
+        """Aucune copie n'est interrompue en cours : l'annulation est consultée
+        avant chaque soumission. Un fichier tronqué sur le NAS serait
+        indiscernable d'un fichier valide."""
+        result = fileops.restore(many, concurrency=8, should_cancel=lambda: True)
+        assert result.cancelled is True
+        assert result.complete is False
+        assert fileops.stash_dir(many).exists()
+
+    def test_a_cancelled_run_resumes_and_finishes(self, many):
+        calls = {"n": 0}
+
+        def cancel_after_a_while() -> bool:
+            calls["n"] += 1
+            return calls["n"] > 10
+
+        fileops.restore(many, concurrency=4, should_cancel=cancel_after_a_while)
+        assert fileops.restore(many, concurrency=4).complete is True
+        assert sum(1 for _ in fileops.iter_files(many)) == 60
+
+    def test_one_failure_does_not_stop_the_others(self, many):
+        bad = next(fileops.iter_files(fileops.stash_dir(many)))
+        bad.chmod(0o000)
+        try:
+            result = fileops.restore(many, concurrency=8)
+        finally:
+            bad.chmod(0o644)
+        assert result.complete is False
+        assert len(result.errors) == 1
+        assert result.copied == 59
+        assert fileops.stash_dir(many).exists()
+
+    def test_sequential_and_concurrent_agree(self, mount):
+        """Le parallélisme est une optimisation, pas un comportement : à
+        contenu égal, les deux chemins doivent rendre le même résultat."""
+        stashed = fileops.stash_dir(mount)
+        for index in range(20):
+            write(stashed / f"f{index}.txt", "x" * index)
+        sequential = fileops.restore(mount, concurrency=1)
+
+        other = mount.parent / "autre"
+        other.mkdir()
+        stashed2 = fileops.stash_dir(other)
+        for index in range(20):
+            write(stashed2 / f"f{index}.txt", "x" * index)
+        concurrent = fileops.restore(other, concurrency=8)
+
+        assert (sequential.copied, sequential.bytes_done) == (
+            concurrent.copied,
+            concurrent.bytes_done,
+        )
+
+
+class TestMetadata:
+    def test_the_modification_date_is_preserved(self, mount):
+        """Ce dont tout dépend : la politique `keep_newest` la compare, et
+        Frigate range ses enregistrements par date. Une copie qui ne la
+        préserverait pas daterait tous les fichiers de l'instant du
+        rapatriement, et le rapatriement suivant les croirait tous récents."""
+        stashed = fileops.stash_dir(mount)
+        when = time.time() - 4242
+        write(stashed / "a.txt", "aaa", mtime=when)
+        fileops.restore(mount)
+        assert (mount / "a.txt").stat().st_mtime == pytest.approx(when, abs=1)
+
+    def test_the_content_is_intact(self, mount):
+        stashed = fileops.stash_dir(mount)
+        (stashed).mkdir(parents=True, exist_ok=True)
+        (stashed / "a.bin").write_bytes(bytes(range(256)) * 100)
+        fileops.restore(mount)
+        assert (mount / "a.bin").read_bytes() == bytes(range(256)) * 100
 
 
 class TestRestoreCancellation:

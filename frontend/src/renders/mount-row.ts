@@ -3,6 +3,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 import { formatCountdown, formatDuration, secondsSince, secondsUntil } from '../helpers/format.js';
 import { percent, progressOf } from '../helpers/progress.js';
 import { canCancel, canRepair, STEP_LABELS, stepper } from '../helpers/steps.js';
+import type { Rate } from '../helpers/rate.js';
 import type { MountState, Remediation, Step } from '../types.js';
 import { renderHistory } from './history.js';
 import { renderProgress, renderStepper } from './stepper.js';
@@ -47,12 +48,14 @@ function addonLine(remediation: Remediation): string {
 export function renderMountRow({
   remediation,
   now,
+  rate,
   showHistory,
   compact,
   onRepair,
   onCancel,
 }: {
   remediation: Remediation;
+  rate?: Rate | null;
   /** Injecté et non lu de `Date.now()` ici : c'est ce qui rend le temps écoulé
       testable, et ce qui garantit que toutes les lignes d'un même rendu
       affichent le même instant. */
@@ -92,7 +95,11 @@ export function renderMountRow({
         ? html`
             ${renderStepper(cells)}
             ${remediation.step === 'restoring' || remediation.step === 'rolling_back'
-              ? renderProgress({ progress, currentFile: remediation.current_file })
+              ? renderProgress({
+                  progress,
+                  currentFile: remediation.current_file,
+                  rate: rate ?? null,
+                })
               : nothing}
             <div class="meta">${elapsed(remediation, now)}</div>
           `

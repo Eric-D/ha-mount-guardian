@@ -64,7 +64,7 @@ class TestEveryFileIsComplete:
 
     def test_declares_every_field_of_the_mounts_step(self, name):
         data = _load(name)["config_subentries"]["addon"]["step"]["mounts"]["data"]
-        assert set(data) == {"mounts", "host", "mode", "overwrite"}
+        assert set(data) == {"mounts", "host", "mode", "overwrite", "concurrency"}
 
     def test_declares_the_abort_reasons_the_subentry_flow_produces(self, name):
         aborts = _load(name)["config_subentries"]["addon"]["abort"]

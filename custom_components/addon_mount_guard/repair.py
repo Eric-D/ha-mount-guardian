@@ -402,6 +402,7 @@ class RepairRunner:
                     fileops.restore,
                     path,
                     overwrite=config.overwrite,
+                    concurrency=config.concurrency,
                     on_progress=on_progress,
                     should_cancel=lambda: self._should_cancel(config.mount),
                 )

@@ -21,7 +21,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .const import DEFAULT_OVERWRITE, USAGE_ROOTS
+from .const import DEFAULT_CONCURRENCY, DEFAULT_OVERWRITE, USAGE_ROOTS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +65,9 @@ class MountConfig:
     #: lit. Défaut en dernier, donc déclaré en dernier — les champs sans défaut
     #: doivent précéder.
     overwrite: str = DEFAULT_OVERWRITE
+    #: Copies menées de front au rapatriement. Propriété du montage elle aussi :
+    #: c'est le NAS qui décide combien de connexions simultanées il encaisse.
+    concurrency: int = DEFAULT_CONCURRENCY
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +160,7 @@ def build_mount_table(
             usage=usage,
             slugs=tuple(sorted(slugs)),
             overwrite=options.get("overwrite", DEFAULT_OVERWRITE),
+            concurrency=int(options.get("concurrency", DEFAULT_CONCURRENCY)),
         )
 
     # Purge symétrique : un add-on dont tous les montages ont été écartés ne
