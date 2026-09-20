@@ -120,6 +120,29 @@ jobs:
           python scripts/manifest_requirements.py
           python -m pip install -r manifest-requirements.txt
 
+      # `aiohasupervisor` n'est PAS une dépendance du paquet `homeassistant` :
+      # c'est une dépendance du COMPOSANT hassio, que Home Assistant installe
+      # au moment de le mettre en place. Elle figurait encore dans les
+      # requires_dist du cœur en 2026.1.0 et en est sortie depuis — c'est
+      # précisément ce qu'a révélé le premier passage de ce job.
+      #
+      # On la lit donc dans le manifeste du composant plutôt que de l'épingler
+      # ici : c'est exactement ce que Home Assistant installerait, à la version
+      # qu'il exige, et ça reste juste quand l'amont change de borne.
+      - name: Install the hassio component requirements, as Home Assistant would
+        run: |
+          python - <<'PY' > hassio-requirements.txt
+          import json
+          import pathlib
+
+          import homeassistant
+
+          manifest = pathlib.Path(homeassistant.__file__).parent / "components/hassio/manifest.json"
+          print("\n".join(json.loads(manifest.read_text("utf-8"))["requirements"]))
+          PY
+          cat hassio-requirements.txt
+          python -m pip install -r hassio-requirements.txt
+
       - name: Import every module of the integration
         run: |
           python -c "

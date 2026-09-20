@@ -21,10 +21,16 @@ intégrations tierces, et il est typé. **Ne pas revenir à
 et il faut alors réécrire à la main le déballage de l'enveloppe et la carte des
 chemins d'URL.
 
-`aiohasupervisor` n'est **pas** déclaré dans `requirements` : il est installé par
-Home Assistant lui-même, dont le composant `hassio` dépend. L'y déclarer
-imposerait une borne de version qui entrerait tôt ou tard en conflit avec celle
-du cœur, et pip refuserait d'installer l'intégration.
+`aiohasupervisor` n'est **pas** déclaré dans `requirements`, et il ne doit pas
+l'être : c'est une dépendance du **composant `hassio`**, que Home Assistant
+installe au moment de le mettre en place. Notre `dependencies: ["hassio"]`
+garantit que cette mise en place précède l'import de ce module.
+
+Attention à la formulation exacte : ce n'est *pas* une dépendance du paquet
+`homeassistant`. Elle figurait encore dans ses `requires_dist` en 2026.1.0 et en
+est sortie depuis. L'y déclarer de notre côté imposerait une borne de version qui
+entrerait tôt ou tard en conflit avec celle que `hassio` épingle, et pip
+refuserait d'installer l'intégration.
 """
 from __future__ import annotations
 

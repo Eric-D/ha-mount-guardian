@@ -308,10 +308,18 @@ meilleur test — c'est ce port précis que le montage va utiliser.
 `hass.data["hassio"].send_command`** : c'est l'ancien client non typé, et il
 faudrait réécrire à la main le déballage de l'enveloppe et la carte des URL.
 
-`aiohasupervisor` **n'est pas dans `requirements`** : il est installé par Home
-Assistant lui-même. L'y déclarer imposerait une borne qui entrerait tôt ou tard
-en conflit avec celle du cœur, et pip refuserait d'installer l'intégration. Il
-est mocké dans `conftest.py`, avec une **vraie** classe d'exception — un
+`aiohasupervisor` **n'est pas dans `requirements`**, et la formulation exacte
+compte : c'est une dépendance du **composant `hassio`**, pas du paquet
+`homeassistant`. Elle figurait encore dans les `requires_dist` du cœur en
+2026.1.0 et en est sortie depuis — le job `import-check (dernière)` l'a
+découvert au premier passage. Home Assistant l'installe au moment de mettre
+`hassio` en place, et notre `dependencies: ["hassio"]` garantit que cela
+précède l'import de nos modules. L'y déclarer de notre côté imposerait une borne
+qui entrerait en conflit avec celle que `hassio` épingle, et pip refuserait
+d'installer l'intégration. C'est pourquoi le job `import-check` lit les
+exigences du composant dans son manifeste plutôt que de les épingler.
+
+Il est mocké dans `conftest.py`, avec une **vraie** classe d'exception — un
 MagicMock dans une clause `except` lève « catching classes that do not inherit
 from BaseException », et tout le module deviendrait intestable en silence.
 
@@ -810,7 +818,9 @@ Par ordre de fragilité :
    `InstalledAddon` casse `supervisor_api.py` — et les tests, qui passent un
    double, ne le verraient pas. Le job `import-check` de la CI est le seul
    endroit qui le dirait, et il tourne aussi sur l'exécution programmée
-   quotidienne.
+   quotidienne. **Il a déjà servi** : au premier passage, il a montré que la
+   bibliothèque avait quitté les dépendances du paquet `homeassistant` entre
+   2026.1.0 et 2026.9.3.
 2. **`get_supervisor_client`.** Exporté dans le `__all__` du composant hassio,
    mais ce n'est pas une garantie de stabilité. Sa disparition ne produirait
    aucune alerte ailleurs : `import-check` l'importe explicitement pour ça.
