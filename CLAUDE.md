@@ -732,13 +732,29 @@ Le bundle `custom_components/addon_mount_guard/www/mount-guard-card.js` est
 commité et la CI vérifie qu'il correspond aux sources. Après toute modification
 de `frontend/src/`, lancer `cd frontend && npm run build` avant de commiter.
 
-Les versions sont mises à jour automatiquement par le workflow de release à
-partir du tag, dans **six** fichiers : `manifest.json`, `CARD_VERSION` de
+### Poser une version
+
+Les versions vivent dans **six** fichiers : `manifest.json`, `CARD_VERSION` de
 `__init__.py`, `frontend/src/version.ts`, `frontend/package.json`,
-`frontend/package-lock.json`, et le bundle reconstruit. Ne pas les bumper à la
-main. `tests/test_manifest.py` vérifie qu'ils restent synchronisés — une
-substitution qui ne matche plus échoue silencieusement, et sur `CARD_VERSION` ça
-ferait resservir un bundle périmé derrière un cache-buster frais.
+`frontend/package-lock.json`, et le bundle reconstruit.
+`tests/test_manifest.py` vérifie qu'ils restent d'accord — désynchronisés, et
+sur `CARD_VERSION` en particulier, ça ferait resservir un bundle périmé
+derrière un cache-buster frais.
+
+**L'ordre est : poser les versions dans un commit, puis taguer ce commit.** Le
+workflow de release ne les recalcule pas, il les **vérifie**, et refuse de
+publier si le manifeste et le tag ne disent pas la même chose.
+
+> **Le workflow de release ne pousse rien sur `main`**, et c'est une correction
+> payée cher. Sa version précédente, reprise du dépôt d'origine, recalculait
+> les numéros à partir du tag puis committait le résultat sur `main`. Le jour
+> où un tag existant a été repoussé — réécriture d'historique pour corriger
+> l'identité des commits — le workflow s'est rejoué et a **ramené `main` à la
+> version du tag**, écrasant celle d'après. Une vérification qui échoue coûte
+> un tag à refaire ; un bump automatique qui part de travers coûte une branche.
+
+Corollaire : **repousser un tag existant relance le workflow de release.** Sur
+une réécriture d'historique, il faut s'y attendre et vérifier `main` ensuite.
 
 ---
 

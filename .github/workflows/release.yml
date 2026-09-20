@@ -8,22 +8,26 @@ on:
 permissions:
   contents: write
 
+# Ce workflow **ne pousse rien sur `main`**, et c'est une correction payée
+# cher. Sa version précédente, reprise du dépôt d'origine, recalculait les
+# numéros de version à partir du tag puis committait le résultat sur `main`.
+# Le jour où un tag existant a été repoussé — réécriture d'historique — le
+# workflow s'est rejoué et a **ramené `main` à la version du tag**, écrasant
+# celle d'après.
+#
+# Le bump automatique n'a donc plus lieu d'être : les versions sont posées
+# dans le commit AVANT de poser le tag, et ce workflow se contente de
+# **vérifier** qu'elles correspondent. Une vérification qui échoue coûte un
+# tag à refaire ; un bump automatique qui part de travers coûte une branche.
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # Le tag lui-même, pas `main` : c'est le code qu'on publie qu'on teste.
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: main
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Extract version from tag
         id: version
@@ -38,6 +42,30 @@ jobs:
             requirements_test.txt
             custom_components/addon_mount_guard/manifest.json
 
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # Le manifeste seul suffit ici : `tests/test_manifest.py` croise ensuite
+      # les cinq autres fichiers avec lui, donc une seule comparaison relie le
+      # tag à l'ensemble.
+      - name: Le manifeste doit déclarer la version du tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DECLARED=$(python -c "
+          import json
+          print(json.load(open('custom_components/addon_mount_guard/manifest.json'))['version'])
+          ")
+          if [ "$DECLARED" != "$VERSION" ]; then
+            echo "::error::Le manifeste déclare ${DECLARED}, le tag dit ${VERSION}."
+            echo "::error::Posez les versions dans un commit, puis taguez ce commit."
+            exit 1
+          fi
+          echo "manifeste et tag d'accord sur ${VERSION}"
+
       - name: Install test dependencies
         run: |
           python -m pip install -r requirements_test.txt
@@ -48,52 +76,16 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # Six fichiers, et tests/test_manifest.py vérifie qu'ils restent
-      # synchronisés : une substitution qui ne matche plus échoue
-      # silencieusement, et sur CARD_VERSION ça ferait resservir un bundle
-      # périmé derrière un cache-buster frais.
-      - name: Update versions in all source files
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" \
-            custom_components/addon_mount_guard/manifest.json
-          sed -i "s/^CARD_VERSION = \".*\"$/CARD_VERSION = \"${VERSION}\"/" \
-            custom_components/addon_mount_guard/__init__.py
-          sed -i "s/export const MOUNT_GUARD_CARD_VERSION = '.*';/export const MOUNT_GUARD_CARD_VERSION = '${VERSION}';/" \
-            frontend/src/version.ts
-          (cd frontend && npm version --no-git-tag-version --allow-same-version "${VERSION}")
-
-      - name: Rebuild frontend bundle with new version
-        working-directory: frontend
-        run: |
-          npm run typecheck
-          npm run build
-
-      # Après le bump et le rebuild : c'est le code réellement publié qu'on
-      # teste, pas celui d'avant substitution des versions.
       - name: Run tests
         run: pytest -q
 
-      - name: Commit version bump and rebuilt bundle
+      - name: Rebuild the bundle and check it matches what is committed
         run: |
-          # Forme canonique de l'adresse de non-réponse GitHub, avec
-          # l'identifiant du compte : c'est celle que GitHub attribue au profil
-          # sans jamais exposer d'adresse réelle, et la seule acceptée quand
-          # « Block command line pushes that expose my email » est actif.
-          git config user.name "Eric-D"
-          git config user.email "3263894+Eric-D@users.noreply.github.com"
-          git add \
-            custom_components/addon_mount_guard/manifest.json \
-            custom_components/addon_mount_guard/__init__.py \
-            custom_components/addon_mount_guard/www/mount-guard-card.js \
-            frontend/src/version.ts \
-            frontend/package.json \
-            frontend/package-lock.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-            git push origin main
-            git tag -f "$GITHUB_REF_NAME"
-            git push origin "$GITHUB_REF_NAME" --force
+          (cd frontend && npm run typecheck && npm run build)
+          if ! git diff --quiet custom_components/addon_mount_guard/www/mount-guard-card.js; then
+            echo "::error::Le bundle commité diffère du build. Rien n'est publié."
+            git --no-pager diff --stat custom_components/addon_mount_guard/www/mount-guard-card.js
+            exit 1
           fi
 
       - name: Generate changelog
